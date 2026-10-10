@@ -1,0 +1,26 @@
+{
+  "locations": [
+    "Avinashi",
+    "Coimbatore",
+    "Dharapuram",
+    "Erode",
+    "Karamadai",
+    "Kinathukadavu",
+    "Namakkal",
+    "Perundurai",
+    "Pollachi",
+    "Salem",
+    "Sulur",
+    "Thalaivasal groundnut plot",
+    "Tiruppur"
+  ],
+  "train_rows": 6773,
+  "test_rows": 5421,
+  "roc_auc_all_days": 0.898,
+  "onset_days": 4600,
+  "onset_positive_days": 596,
+  "onset_recall": 0.435,
+  "onset_precision": 0.518,
+  "onset_roc_auc": 0.797,
+  "alert_threshold": 0.2
+}

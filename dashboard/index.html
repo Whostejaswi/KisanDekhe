@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crop Stress Early Warning</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f4f1e8;--card:#fffdf7;--ink:#1d2a22;--muted:#67736b;--line:#e2dacb;--green:#1f4d3a;--high:#b5482e;--med:#c98a1b;--low:#4f8a5b}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:15px;line-height:1.5}
+h1,h2,h3{font-family:'Fraunces',Georgia,serif;font-weight:800;margin:0;letter-spacing:-.01em}
+header{background:var(--green);color:#f4f1e8;padding:30px 44px 34px}
+header p{margin:6px 0 0;opacity:.85}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:22px}
+.step{background:rgba(255,255,255,.08);border-radius:12px;padding:14px 16px}
+.step b{display:block;margin-bottom:4px}
+.tabs{display:flex;gap:8px;max-width:1400px;margin:auto;padding:24px 44px 0}
+.tab{font:inherit;padding:10px 18px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+.tab.active{background:var(--green);color:#f4f1e8;border-color:var(--green)}
+main{padding:12px 44px 56px;max-width:1400px;margin:auto}
+.section-title{font-family:'Fraunces',serif;font-size:22px;margin:34px 0 14px}
+.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;border-left:6px solid var(--line)}
+.stat .n{font-family:'Fraunces',serif;font-size:34px;font-weight:800}
+.stat .l{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.06em}
+.map-grid{display:grid;grid-template-columns:1.5fr 1fr;gap:18px;margin-top:14px}
+#map{height:460px;border-radius:14px;border:1px solid var(--line)}
+.areas{display:flex;flex-direction:column;gap:10px;max-height:460px;overflow:auto;padding-right:4px}
+.area{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;text-align:left;cursor:pointer;font:inherit;color:inherit}
+.area:hover,.area.active{border-color:var(--green);box-shadow:0 0 0 2px rgba(31,77,58,.15)}
+.area .row{display:flex;justify-content:space-between;align-items:center}
+.pill{color:#fff;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px}
+.muted{color:var(--muted);font-size:13.5px;margin-top:4px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
+.controls{display:flex;gap:18px;align-items:end;flex-wrap:wrap;margin-bottom:18px}
+select{font:inherit;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:#fff;min-width:200px}
+.slider-wrap{flex:1;min-width:260px}
+input[type=range]{width:100%;accent-color:var(--green)}
+.detail{display:grid;grid-template-columns:300px 1fr;gap:24px}
+.ring-box{text-align:center}
+.ring-val{font-family:'Fraunces',serif;font-size:44px;font-weight:800;fill:var(--ink)}
+.action{border-radius:14px;padding:18px 20px;border-left:6px solid;margin-bottom:16px}
+.action h3{font-size:24px;margin-bottom:6px}
+.reasons li{margin-bottom:8px}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px}
+.chart{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+.chart h4{margin:0 0 8px;font-size:14px;font-weight:600}
+.chart .box{position:relative;height:230px}
+.model{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.note{color:var(--muted);font-size:13.5px;margin-top:14px}
+.farm-head{margin-bottom:12px}
+footer{color:var(--muted);font-size:13px;padding:0 44px 30px;max-width:1400px;margin:auto}
+@media(max-width:900px){.summary,.model,.steps{grid-template-columns:1fr 1fr}.map-grid,.detail,.charts{grid-template-columns:1fr}header,main,.tabs{padding-left:20px;padding-right:20px}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Crop Stress Early Warning</h1>
+  <p>Satellite and weather check for farm areas in the Kongu belt and Salem, Tamil Nadu. Latest data: <span id="latest"></span></p>
+  <div class="steps">
+    <div class="step"><b>1. Satellite checks the crop</b>How green the crop is, compared with normal for this date.</div>
+    <div class="step"><b>2. Weather is checked</b>Rain, dry spells and heat over the last month.</div>
+    <div class="step"><b>3. You get a clear action</b>A risk level, the reasons, and what to do this week.</div>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab active" data-tab="region">Region overview</button>
+  <button class="tab" data-tab="farm">My farm</button>
+</div>
+
+<main>
+  <!-- ================= REGION OVERVIEW ================= -->
+  <div id="tab-region">
+    <div class="summary" id="summary"></div>
+
+    <div class="section-title">Farm map</div>
+    <div class="map-grid">
+      <div id="map"></div>
+      <div class="areas" id="areas"></div>
+    </div>
+
+    <div class="section-title">Field details</div>
+    <div class="panel">
+      <div class="controls">
+        <div><div class="muted">Area</div><select id="area"></select></div>
+        <div class="slider-wrap">
+          <div class="muted">Date: <b id="date"></b></div>
+          <input type="range" id="slider" min="0" value="0">
+        </div>
+      </div>
+
+      <div class="detail">
+        <div class="ring-box">
+          <svg viewBox="0 0 140 140" width="220">
+            <circle cx="70" cy="70" r="52" fill="none" stroke="#e8e2d4" stroke-width="14"/>
+            <circle id="ring-fg" cx="70" cy="70" r="52" fill="none" stroke-width="14" stroke-linecap="round"
+                    stroke-dasharray="326.73" transform="rotate(-90 70 70)"/>
+            <text x="70" y="78" text-anchor="middle" class="ring-val" id="ring-val"></text>
+          </svg>
+          <div><b id="ring-lvl"></b></div>
+          <div class="muted">Chance of crop stress in the next 10 days</div>
+        </div>
+
+        <div>
+          <div class="action" id="action"></div>
+          <h3 style="font-size:18px;margin-bottom:6px">Why this level</h3>
+          <ul class="reasons" id="reasons"></ul>
+        </div>
+      </div>
+
+      <div class="charts">
+        <div class="chart"><h4>Crop greenness vs normal (shaded red = stress zone)</h4><div class="box"><canvas id="ndvi"></canvas></div></div>
+        <div class="chart"><h4>Daily rainfall (mm)</h4><div class="box"><canvas id="rain"></canvas></div></div>
+        <div class="chart"><h4>Daily maximum temperature (°C)</h4><div class="box"><canvas id="temp"></canvas></div></div>
+        <div class="chart"><h4>Risk over the last 6 months</h4><div class="box"><canvas id="risk"></canvas></div></div>
+      </div>
+    </div>
+
+    <div class="section-title">How well does the early warning work?</div>
+    <div class="panel">
+      <div class="model" id="model"></div>
+      <p class="note">Tested on days the model never trained on. Stress is defined by a rule (greenness well below normal plus little rain over 2 weeks), not by a field inspection. Results describe the neighbourhood of each point (about 250 m), not a single field.</p>
+    </div>
+  </div>
+
+  <!-- ================= MY FARM ================= -->
+  <div id="tab-farm" hidden>
+    <div class="section-title">My farm</div>
+    <div class="panel">
+      <div class="controls">
+        <div><div class="muted">Farm</div><select id="farm-sel"></select></div>
+        <div class="slider-wrap">
+          <div class="muted">Date: <b id="farm-date"></b></div>
+          <input type="range" id="farm-slider" min="0" value="0">
+        </div>
+      </div>
+
+      <div id="farm-card" class="farm-head"></div>
+
+      <div class="detail">
+        <div class="ring-box">
+          <svg viewBox="0 0 140 140" width="220">
+            <circle cx="70" cy="70" r="52" fill="none" stroke="#e8e2d4" stroke-width="14"/>
+            <circle id="farm-ring-fg" cx="70" cy="70" r="52" fill="none" stroke-width="14" stroke-linecap="round"
+                    stroke-dasharray="326.73" transform="rotate(-90 70 70)"/>
+            <text x="70" y="78" text-anchor="middle" class="ring-val" id="farm-ring-val"></text>
+          </svg>
+          <div><b id="farm-lvl"></b></div>
+          <div class="muted">Chance of crop stress in the next 10 days</div>
+        </div>
+        <div>
+          <div class="action" id="farm-action"></div>
+          <h3 style="font-size:18px;margin-bottom:6px">This week's tasks</h3>
+          <ul class="reasons" id="farm-tasks"></ul>
+        </div>
+      </div>
+
+      <div class="charts" style="grid-template-columns:1fr">
+        <div class="chart"><h4>Crop greenness vs normal (shaded red = stress zone)</h4><div class="box"><canvas id="farm-ndvi"></canvas></div></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Data: CHIRPS rainfall, ERA5-Land temperature, MODIS MOD13Q1 greenness (NDVI), via Google Earth Engine.
+  Areas outside the built-in list use the same model and are less reliable.
+</footer>
+
+<script src="data.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  if (!window.DASHBOARD) {
+    document.body.insertAdjacentHTML('afterbegin',
+      '<p style="padding:20px;color:#b5482e"><b>data.js did not load.</b> Run export_dashboard.py, then reload.</p>');
+    return;
+  }
+  if (typeof L === 'undefined' || typeof Chart === 'undefined') {
+    document.body.insertAdjacentHTML('afterbegin',
+      '<p style="padding:20px;color:#b5482e"><b>Map or chart library did not load.</b> Check your internet connection and reload.</p>');
+    return;
+  }
+
+  const D = window.DASHBOARD;
+  const LV = {
+    High:   {hex:'#b5482e', bg:'#fbe9e4', title:'Act now'},
+    Medium: {hex:'#c98a1b', bg:'#fdf3df', title:'Watch closely'},
+    Low:    {hex:'#4f8a5b', bg:'#e6f2e9', title:'Normal'},
+  };
+  const TIPS = {
+    High: 'Stress is likely within 10 days. Visit the field today.',
+    Medium: 'Conditions are drifting toward stress. Check soil and crop within 2 days.',
+    Low: 'No action needed. Continue regular field care.',
+  };
+  const CHECK = {
+    High: ['Walk the field and inspect at least 10 plants', 'Irrigate within 3 days unless rain is forecast',
+           'Look for pests and yellowing leaves', 'Check the risk again tomorrow'],
+    Medium: ['Dig 10 cm into the soil and feel the moisture', 'Check the rain forecast for the next 48 hours',
+             'Check the risk again in 2 days'],
+    Low: ['Continue normal field care'],
+  };
+  const GAUGE_C = 326.73;
+
+  const fmtDate = s => new Date(s).toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'});
+  const names = Object.keys(D.locations);
+  const latestOf = n => { const s = D.locations[n].series; return s[s.length - 1]; };
+  const byRisk = [...names].sort((a, b) => latestOf(b).risk - latestOf(a).risk);
+
+  document.getElementById('latest').textContent = D.latest_data;
+
+  // ---------- Chart helpers ----------
+  function opts(yExtra) {
+    return {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: {mode: 'index', intersect: false},
+      plugins: {legend: {position: 'bottom', labels: {boxWidth: 12, color: '#67736b'}}},
+      scales: {
+        x: {ticks: {maxTicksLimit: 6, color: '#67736b'}, grid: {display: false}},
+        y: Object.assign({ticks: {color: '#67736b'}, grid: {color: '#ece6d6'}}, yExtra || {}),
+      },
+    };
+  }
+  function line(label, color, extra) {
+    return Object.assign({label: label, borderColor: color, backgroundColor: color,
+      borderWidth: 2.5, pointRadius: 0, tension: .3, data: []}, extra || {});
+  }
+  function setChart(ch, labels, datasets) {
+    ch.data.labels = labels;
+    datasets.forEach(function (d, k) { ch.data.datasets[k].data = d; });
+    ch.update();
+  }
+  function setGauge(fg, valEl, lvlEl, risk, level) {
+    const lv = LV[level];
+    fg.style.stroke = lv.hex;
+    fg.style.strokeDashoffset = GAUGE_C * (1 - risk);
+    valEl.textContent = Math.round(risk * 100) + '%';
+    lvlEl.textContent = level + ' risk';
+    lvlEl.style.color = lv.hex;
+  }
+
+  // ---------- Tabs ----------
+  const map = L.map('map', {scrollWheelZoom: false}).setView([11.0, 77.4], 7);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 18, attribution: 'Tiles © Esri'
+  }).addTo(map);
+
+  document.querySelectorAll('.tab').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('active', b === btn); });
+      const farmTab = btn.dataset.tab === 'farm';
+      document.getElementById('tab-region').hidden = farmTab;
+      document.getElementById('tab-farm').hidden = !farmTab;
+      if (farmTab) { farmChart.resize(); renderFarm(); }
+      else { map.invalidateSize(); }
+    });
+  });
+
+  // ---------- Summary ----------
+  const counts = {High: 0, Medium: 0, Low: 0};
+  names.forEach(function (n) { counts[latestOf(n).level]++; });
+  document.getElementById('summary').innerHTML = `
+    <div class="stat" style="border-left-color:#2c3e35"><div class="l">Areas monitored</div><div class="n">${names.length}</div></div>
+    <div class="stat" style="border-left-color:${LV.High.hex}"><div class="l">High risk</div><div class="n">${counts.High}</div></div>
+    <div class="stat" style="border-left-color:${LV.Medium.hex}"><div class="l">Medium risk</div><div class="n">${counts.Medium}</div></div>
+    <div class="stat" style="border-left-color:${LV.Low.hex}"><div class="l">Low risk</div><div class="n">${counts.Low}</div></div>`;
+
+  // ---------- Map markers ----------
+  names.forEach(function (n) {
+    const p = latestOf(n), loc = D.locations[n];
+    L.circleMarker([loc.lat, loc.lon], {radius: 13, color: '#fff', weight: 3,
+      fillColor: LV[p.level].hex, fillOpacity: .95})
+      .bindTooltip(n + ': ' + Math.round(p.risk * 100) + '% (' + p.level + ')')
+      .on('click', function () { select(n); })
+      .addTo(map);
+  });
+
+  // ---------- Area list and selector ----------
+  function renderAreas() {
+    const el = document.getElementById('areas');
+    el.innerHTML = '';
+    byRisk.forEach(function (n) {
+      const p = latestOf(n);
+      const b = document.createElement('button');
+      b.className = 'area' + (n === state.loc ? ' active' : '');
+      b.innerHTML = `<div class="row"><b>${n}</b><span class="pill" style="background:${LV[p.level].hex}">${p.level}</span></div>
+                     <div class="muted">${LV[p.level].title}: ${Math.round(p.risk * 100)}% chance of stress in 10 days</div>`;
+      b.addEventListener('click', function () { select(n); });
+      el.appendChild(b);
+    });
+  }
+
+  const areaSel = document.getElementById('area');
+  names.forEach(function (n) { areaSel.add(new Option(n, n)); });
+  areaSel.addEventListener('change', function () { select(areaSel.value); });
+
+  const slider = document.getElementById('slider');
+  slider.addEventListener('input', function () { state.idx = +slider.value; render(); });
+
+  // ---------- Region charts ----------
+  const charts = {
+    ndvi: new Chart(document.getElementById('ndvi'), {type: 'line', data: {labels: [], datasets: [
+      line('Observed', '#1f4d3a', {borderWidth: 3}),
+      line('Normal for this date', '#8a958e', {borderDash: [6, 5]}),
+      line('Stress line', '#b5482e', {borderWidth: 1.5, fill: '-1', backgroundColor: 'rgba(181,72,46,.12)'}),
+    ]}, options: opts()}),
+    rain: new Chart(document.getElementById('rain'), {type: 'bar', data: {labels: [], datasets: [
+      {label: 'Rain (mm)', data: [], backgroundColor: '#4f8a5b'}]}, options: opts()}),
+    temp: new Chart(document.getElementById('temp'), {type: 'line', data: {labels: [], datasets: [
+      line('Max temperature', '#c98a1b', {borderWidth: 2.5}),
+      line('Heat stress (35°C)', '#b5482e', {borderDash: [4, 4], borderWidth: 1.5})]}, options: opts()}),
+    risk: new Chart(document.getElementById('risk'), {type: 'line', data: {labels: [], datasets: [
+      line('Risk', '#1f4d3a', {borderWidth: 3, fill: true, backgroundColor: 'rgba(31,77,58,.08)'}),
+      line('Medium (20%)', '#c98a1b', {borderDash: [4, 4], borderWidth: 1.5}),
+      line('High (50%)', '#b5482e', {borderDash: [4, 4], borderWidth: 1.5})]},
+      options: opts({min: 0, max: 1, ticks: {color: '#67736b', callback: function (v) { return Math.round(v * 100) + '%'; }}})}),
+  };
+
+  function updateCharts(s, i) {
+    const w = s.slice(Math.max(0, i - 119), i + 1);
+    const h = s.slice(Math.max(0, i - 179), i + 1);
+    setChart(charts.ndvi, w.map(x => x.date.slice(5)),
+      [w.map(x => x.ndvi), w.map(x => x.expected), w.map(x => +(x.expected * 0.9).toFixed(3))]);
+    setChart(charts.rain, w.map(x => x.date.slice(5)), [w.map(x => x.rain)]);
+    setChart(charts.temp, w.map(x => x.date.slice(5)), [w.map(x => x.tmax), w.map(() => 35)]);
+    setChart(charts.risk, h.map(x => x.date.slice(5)),
+      [h.map(x => x.risk), h.map(() => 0.2), h.map(() => 0.5)]);
+  }
+
+  // ---------- Region state and render ----------
+  const state = {loc: byRisk[0], idx: 0};
+
+  function select(n) {
+    state.loc = n;
+    state.idx = D.locations[n].series.length - 1;
+    areaSel.value = n;
+    slider.max = D.locations[n].series.length - 1;
+    slider.value = state.idx;
+    renderAreas();
+    render();
+  }
+
+  function render() {
+    const s = D.locations[state.loc].series;
+    const p = s[state.idx];
+    const lv = LV[p.level];
+    document.getElementById('date').textContent = fmtDate(p.date);
+    setGauge(document.getElementById('ring-fg'), document.getElementById('ring-val'),
+             document.getElementById('ring-lvl'), p.risk, p.level);
+
+    const action = document.getElementById('action');
+    action.style.background = lv.bg;
+    action.style.borderLeftColor = lv.hex;
+    action.innerHTML = `
+      <h3 style="color:${lv.hex}">${lv.title}</h3>
+      <div>${TIPS[p.level]}</div>
+      <ol>${CHECK[p.level].map(c => `<li>${c}</li>`).join('')}</ol>`;
+
+    const reasons = p.reasons.length ? p.reasons : ['No major stress driver right now'];
+    document.getElementById('reasons').innerHTML = reasons.map(function (r) {
+      const tip = D.advice[r];
+      return `<li><b>${r}</b>${tip ? ': ' + tip : ''}</li>`;
+    }).join('');
+
+    updateCharts(s, state.idx);
+  }
+
+  // ---------- My farm ----------
+  const farmNames = names.filter(n => D.locations[n].is_farm);
+  const farmSel = document.getElementById('farm-sel');
+  const farmSlider = document.getElementById('farm-slider');
+  farmNames.forEach(function (n) { farmSel.add(new Option(n, n)); });
+
+  const farmChart = new Chart(document.getElementById('farm-ndvi'), {type: 'line', data: {labels: [], datasets: [
+    line('Observed', '#1f4d3a', {borderWidth: 3}),
+    line('Normal for this date', '#8a958e', {borderDash: [6, 5]}),
+    line('Stress line', '#b5482e', {borderWidth: 1.5}),
+  ]}, options: opts()});
+
+  // Last day inside the growing season (not after harvest)
+  function inSeasonIdx(loc) {
+    const s = D.locations[loc].series;
+    let best = s.length - 1;
+    s.forEach(function (x, i) {
+      if (x.advice && x.advice.das >= 0 && x.advice.das <= 105) best = i;
+    });
+    return best;
+  }
+
+  // Average greenness of the town areas on the same date
+  function townAverageNdvi(date) {
+    const vals = names.filter(n => !D.locations[n].is_farm)
+      .map(n => D.locations[n].series.find(x => x.date === date))
+      .filter(Boolean).map(x => x.ndvi);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  }
+
+  const farmState = {loc: farmNames[0], idx: 0};
+
+  function renderFarm() {
+    if (!farmNames.length) {
+      document.getElementById('farm-card').innerHTML =
+        '<b>No farm data yet.</b> Run refresh_all.py, train_all.py and export_dashboard.py, then reload this page.';
+      return;
+    }
+    const f = D.locations[farmState.loc];
+    const s = f.series;
+    const p = s[farmState.idx];
+    const adv = p.advice || {das: -1, stage: 'Unknown', stage_text: '', tasks: [], note: ''};
+    const lv = LV[p.level];
+
+    farmSlider.max = s.length - 1;
+    farmSlider.value = farmState.idx;
+    farmSel.value = farmState.loc;
+    document.getElementById('farm-date').textContent = fmtDate(p.date);
+
+    document.getElementById('farm-card').innerHTML = `
+      <h3>${farmState.loc}</h3>
+      <div class="muted">${f.owner} · ${f.crop} · ${f.variety} · ${f.village} · ${f.area_acres} acres</div>
+      <div class="muted">Sown ${f.sown_on} · ${adv.stage}${adv.das >= 0 ? ` (day ${adv.das})` : ''}</div>`;
+
+    setGauge(document.getElementById('farm-ring-fg'), document.getElementById('farm-ring-val'),
+             document.getElementById('farm-lvl'), p.risk, p.level);
+
+    const avg = townAverageNdvi(p.date);
+    const cmp = avg ? (p.ndvi - avg) / avg * 100 : null;
+    const cmpText = cmp === null ? '' :
+      `Greenness is ${Math.abs(cmp).toFixed(0)}% ${cmp < 0 ? 'below' : 'above'} the average of the towns in this region on this date.`;
+
+    const box = document.getElementById('farm-action');
+    box.style.background = lv.bg;
+    box.style.borderLeftColor = lv.hex;
+    box.innerHTML = `
+      <h3 style="color:${lv.hex}">${lv.title}</h3>
+      <p>${adv.stage_text}</p>
+      ${adv.note ? `<p><b>${adv.note}</b></p>` : ''}
+      <div class="muted">${cmpText}</div>`;
+
+    document.getElementById('farm-tasks').innerHTML = adv.tasks.length
+      ? adv.tasks.map(t => `<li>${t}</li>`).join('')
+      : '<li>No timed tasks in the next 7 days.</li>';
+
+    const w = s.slice(Math.max(0, farmState.idx - 119), farmState.idx + 1);
+    setChart(farmChart, w.map(x => x.date.slice(5)),
+      [w.map(x => x.ndvi), w.map(x => x.expected), w.map(x => +(x.expected * 0.9).toFixed(3))]);
+  }
+
+  farmSel.addEventListener('change', function () {
+    farmState.loc = farmSel.value;
+    farmState.idx = inSeasonIdx(farmState.loc);
+    renderFarm();
+  });
+  farmSlider.addEventListener('input', function () {
+    farmState.idx = +farmSlider.value;
+    renderFarm();
+  });
+
+  // ---------- Model results ----------
+  const m = D.metrics;
+  document.getElementById('model').innerHTML = `
+    <div class="stat" style="border-left-color:${LV.Low.hex}"><div class="l">Upcoming stress caught early</div><div class="n">${Math.round(m.onset_recall * 100)}%</div><div class="muted">Stress events the model warned about before the crop showed visible stress.</div></div>
+    <div class="stat" style="border-left-color:${LV.Medium.hex}"><div class="l">Warnings that were right</div><div class="n">${Math.round(m.onset_precision * 100)}%</div><div class="muted">Share of warnings followed by real stress within 10 days.</div></div>
+    <div class="stat" style="border-left-color:${LV.High.hex}"><div class="l">Simple "stressed today" rule</div><div class="n">0%</div><div class="muted">Cannot warn before stress starts, so it catches none of these events.</div></div>`;
+
+  // ---------- Start ----------
+  select(state.loc);
+  if (farmNames.length) {
+    farmState.loc = farmNames[0];
+    farmState.idx = inSeasonIdx(farmNames[0]);
+    renderFarm();
+  } else {
+    renderFarm();
+  }
+})();
+</script>
+</body>
+</html>
